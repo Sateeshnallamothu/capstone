@@ -1,0 +1,271 @@
+---
+title: "Text Prediction using R"
+author: "Sateesh Nallamothu"
+date: "May 10, 2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Natural Language Processing
+
+With advances in Computer power and Data Science techniques, Natural Language Processing is heavily relied on Machine learning algorithms and Statistical Learning Methods. These algorithms and methods take a large set of 'features' as inputs that are generated from input data block. **Bag-of-words** and **N-gram** model are most commonly used methods to predict the next word in a sentence.
+
+**Bag-of-words** model will be used to generate features from the data. The most common feature is term frequency, namely, the number of times a term/word appear in a line of text. Term frequency is not the best representation for the text. 
+
+**N-gram** method of prediction can provide more information within the text. N-gram model depends on knowledge of word sequence from (N-1) prior words. This Model is widely used in NLP processing. Each n-gram model is composed of n words. i.e. 1-gram is one word, 2-gram is two sequential words, 3-gram is three sequential words etc. The bag-of-words model can be considered as 1-gram. 
+
+## Data gathering and exploratory analysis
+
+For the purpose of this exercise, we'll use the dataset provided for this project. SwiftKey is a corporate partner for this project and the dataset is a zip file including blog posts, new articles and Twitter tweets. Here are some of the statistics about of data/corpus. 
+
+
+  |File                  |Lines     |Words     |
+  |:---------------------|:--------:|:--------:|
+  |en_US.twitter.txt     |2360149   |30373583  |
+  |en_US.blogs.txt       |899289    |3733413   |
+  |en_US.news.txt        | 77260    |2643969   |
+  
+ As the data files are too big to analyze with 8GB RAM and i7 processor, I randomly picked 15K rows/lines from  News.txt file. Here are some frequently used 1-gram words from the sample data. 
+
+```{r worddist,warning=FALSE,echo=FALSE,message=FALSE}
+#setwd('Rscripts')
+library(tm)
+#library(qdap)
+library(ggplot2)
+load('worddist')
+g <- ggplot(word.dist[1:20,],aes(x=tokens,y=Freq))+geom_bar(stat='identity',position = 'dodge')
+g <- g+ggtitle("1-gram")+coord_flip()+ylab("Freq")
+g <- g+geom_text(aes(label=Freq),position = position_dodge(.5),hjust=0,color='black')
+g
+```
+
+
+## Assumptions and cleaning
+
+The initial exploration via simple visualization and 1-gram model indicated that the raw data required a number of transformations in order to use it in N-gram modeling. 
+For the purpose of building simple 2-gram, and 3-gram models, the following assumptions and data cleanups were chosen. 
+  
+  1. The corpus words will not be case sensitive.
+  2. Stop words will not be removed.
+  3. Word stemming will not be used.
+  4. Punctuation and special characters will be removed
+  5. Numbers will not be replaced with words
+  6. Whitespaces will not be discarded 
+  
+We'll use R text mining (tm) package along with 'grep' function to perform above cleanup. Understanding the distribution among the word tokens help shape our expectation. As part of this assignment, we'll work on a 3-gram model. The basic building blocks of the model are unigrams (n=1), bigram(n=2), and trigram(n=3). There are fewer unigrams (31681) than bigrams(195847) and trigrams (307742).
+
+Following plots provide the distribution of the frequenies for bigram and trygram. 
+
+```{r gramplot,echo=FALSE}
+load('worddist2')
+load('worddist3')
+load('worddist4')
+par(mfrow=c(1,3),mar=c(4,4,2,1))
+plot(log10(word.dist[1:nrow(word.dist)/2,]$Freq),xlab='Top 50% of unigram',ylab='log10 frequency') 
+## far left is n-gram with high frequency.
+plot(log10(word.dist2[1:nrow(word.dist2)/2,]$Freq),xlab='Top 50% of bigram',ylab='log10 frequency')
+plot(log10(word.dist3[1:nrow(word.dist3)/2,]$Freq),xlab='Top 50% of trigram',ylab='log10 frequency')
+title(main='Distribution of three n-gram model')
+```
+ 
+*For additional plots showing frequent n-gram words, please see the appendix*
+
+## Modeling
+
+After tokenizing the sample data and creating n-gram model, we can predict the next word by following below steps.
+
+  1. n-gram tables/data frame are sorted by frequency of occurrence of the words.
+  2. Get a text as input with three words/tokens so that we can start our search with 4-gram table. 
+  3. Search the 4-gram table and find a matching terms for the given input string/text.  If one or more matches are found, then the algorithm outputs the top predictions for the next word given those three terms.
+  4. If no match is found in the 4-gram table, then the search continues in the 3-gram table using the last two words from the input. 
+  5. If no match is found, the prediction will then the top 5 tokens from one-gram table.
+
+```{r func,warning=FALSE,echo=FALSE,message=FALSE}
+ 
+##                   word prediction function
+nextword <- function(txt) {
+  txt <- tolower(txt)
+  words <- strsplit(txt,split=" ")[[1]]
+  nwords <- length(words)
+  wlist <- NULL
+  if (nwords > 3) {
+    return('Error')
+  }
+  if (nwords == 3) {
+    wlist <- word.dist4[grep(paste("^",txt,sep=""),word.dist4$tokens),1:2]
+    if (nrow(wlist) == 0) {
+      txt <- paste(words[2],words[3])
+      nwords <- 2
+    }
+  }
+  if (nwords == 2) {
+    wlist <- word.dist3[grep(paste("^",txt,sep=""),word.dist3$tokens),1:2] 
+    if (nrow(wlist) < 6) {
+      txt <- ifelse(is.na(words[3]),words[2],words[3])
+      nwords <- 1
+    }
+  }
+  if (nwords == 1) {
+    wlist <- rbind(wlist,word.dist2[grep(paste("^",txt,sep=""),word.dist2$tokens),1:2])
+    if (nrow(wlist) < 6) {
+      wlist <- rbind(wlist,word.dist[1:5,1:2])
+    }
+  }
+  return(wlist[1:min(5,nrow(wlist)),])     
+}
+
+```
+
+
+```{r predictword,results='hold'}
+nextword("thank you")
+nextword("first")
+nextword("one of the")
+nextword('a case of')
+nextword('would mean the')
+nextword('make me the')
+nextword('struggling but the')
+nextword('date at the')
+nextword('be on my')
+nextword('in quite some')
+nextword('with his little')
+nextword('faith during the')
+nextword('you must be')
+```
+
+
+## Next steps
+Next steps are to use 'tm' package to clean the data and apply Smoothing methods to the prediction model. 
+Also, we can use shiny application to take input next and display the next predicted word list.
+
+## Appendix
+
+
+```{r appendixPlots,warning=FALSE,echo=FALSE,message=FALSE}
+ 
+
+g <- ggplot(word.dist2[1:20,],aes(x=tokens,y=Freq))+geom_bar(stat='identity',position = 'dodge')
+g <- g+ggtitle("2-gram")+coord_flip()+ylab("Freq")
+g <- g+geom_text(aes(label=Freq),position = position_dodge(.5),hjust=0,color='black')
+g
+g <- ggplot(word.dist3[1:20,],aes(x=tokens,y=Freq))+geom_bar(stat='identity',position = 'dodge')
+g <- g+ggtitle("3-gram")+coord_flip()+ylab("Freq")
+g <- g+geom_text(aes(label=Freq),position = position_dodge(.5),hjust=0,color='black')
+g
+g <- ggplot(word.dist4[1:20,],aes(tokens,y=Freq))+geom_bar(stat='identity',position = 'dodge')
+g <- g+ggtitle("4-gram")+coord_flip()+ylab("Freq")
+g <- g+geom_text(aes(label=Freq),position = position_dodge(.5),hjust=0,color='black')
+g
+```
+
+### Sample Code
+
+```{r samplecode,eval=FALSE}
+rnd.lines <- sample(1:77000,10000)
+#con=file('capstone/final/en_US/en_US.twitter.txt',"r")
+#con=file('capstone/final/en_US/en_US.blogs.txt',"r")
+con=file('capstone/final/en_US/en_US.news.txt',"r")
+#length(readLines(con,warn=FALSE ))
+while ( TRUE ) {
+  text <- readLines(con, n = 1,skipNul = TRUE)
+  ln <- length(text)
+  cnt <- cnt + 1
+  #if (cnt == 10000) {
+  #  break
+  #}
+  # if end of file, exit out of the loop
+  if ( ln == 0 ) {
+    break
+  }
+  if (cnt %in% rnd.lines) {
+
+    # Print text without standard stop words
+    #tokens <- c(tokens,strsplit(stripWhitespace(removeWords(text,stopwords("en"))),split = " ")[[1]]) 
+    tokens <- c(tokens,strsplit(text,split=" ")[[1]])
+  }
+}
+
+close(con)
+all.tokens <- tolower(gsub("[[:punct:]]","",tokens))
+all.tokens <- tolower(gsub("[[:digit:]]","",all.tokens))
+
+all.len <- length(all.tokens)
+
+####     construct 1-gram.. up to 4-gram words from all tokens.. 
+word.dist <- data.frame(table(all.tokens))
+word.dist <- cbind(word.dist,prob=word.dist$Freq/length(all.tokens))
+word.dist <- word.dist[order(word.dist$Freq,decreasing=T),]
+two.gram <- NULL
+three.gram <- NULL
+four.gram <- NULL
+
+g <- ggplot(word.dist[1:20,],aes(x=all.tokens,y=Freq))+geom_bar(stat='identity',position = 'dodge')
+g <- g+ggtitle("1-gram")+coord_flip()
+g <- g+geom_text(aes(label=Freq),position = position_dodge(.5),hjust=0,color='black')
+g
+
+for(i in 1:all.len-1) {
+  two.gram[i] <- paste(all.tokens[i],all.tokens[i+1])  
+  three.gram[i] <- paste(two.gram[i],all.tokens[i+2])
+  four.gram[i] <- paste(three.gram[i],all.tokens[i+3])
+  
+}
+word.dist2 <- data.frame(table(two.gram))
+word.dist2 <- cbind(word.dist2,prob=word.dist2$Freq/nrow(word.dist2))
+word.dist2 <- word.dist2[order(word.dist2$Freq,decreasing=T),]  ##[1:100,]
+word.dist3 <- data.frame(table(three.gram))
+word.dist3 <- cbind(word.dist3,prob=word.dist3$Freq/nrow(word.dist3))
+word.dist3 <- word.dist3[order(word.dist3$Freq,decreasing=T),]  ##[1:100,]
+word.dist4 <- data.frame(table(four.gram))
+word.dist4 <- cbind(word.dist4,prob=word.dist4$Freq/nrow(word.dist4))
+word.dist4 <- word.dist4[order(word.dist4$Freq,decreasing=T),]  ##[1:100,]
+word.dist2$two.gram <- as.character(word.dist2$two.gram)
+word.dist3$three.gram <- as.character(word.dist3$three.gram)
+word.dist4$four.gram <- as.character(word.dist4$four.gram)
+ ## all tokens with 15K sample (news file) 392172
+
+ 
+###  function to get nextword
+names(word.dist) <- c("tokens","Freq","prob")
+names(word.dist2) <- c("tokens","Freq","prob")
+names(word.dist2) <- c("tokens","Freq","prob")
+names(word.dist3) <- c("tokens","Freq","prob")
+names(word.dist4) <- c("tokens","Freq","prob")
+##                   word prediction function
+nextword <- function(txt) {
+  txt <- tolower(txt)
+  words <- strsplit(txt,split=" ")[[1]]
+  nwords <- length(words)
+  wlist <- NULL
+  if (nwords > 3) {
+    return('Error')
+  }
+  if (nwords == 3) {
+    wlist <- word.dist4[grep(paste("^",txt,sep=""),word.dist4$tokens),1:2]
+    if (nrow(wlist) == 0) {
+      txt <- paste(words[2],words[3])
+      nwords <- 2
+    }
+  }
+  if (nwords == 2) {
+    wlist <- word.dist3[grep(paste("^",txt,sep=""),word.dist3$tokens),1:2] 
+    if (nrow(wlist) < 6) {
+      txt <- ifelse(is.na(words[3]),words[2],words[3])
+      nwords <- 1
+    }
+  }
+  if (nwords == 1) {
+    wlist <- rbind(wlist,word.dist2[grep(paste("^",txt,sep=""),word.dist2$tokens),1:2])
+    if (nrow(wlist) < 6) {
+      wlist <- rbind(wlist,word.dist[1:5,1:2])
+    }
+  }
+  return(wlist[1:min(5,nrow(wlist)),])     
+}
+nextword("thank you")
+nextword("the first")
+nextword("one of the")
+```
